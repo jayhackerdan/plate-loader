@@ -285,7 +285,7 @@ function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<':
 const P = () => S.profiles.find(p => p.id === S.profileId) || S.profiles[0];
 function getTarget() {
   const p = P(), l = p.last[p.barId];
-  if (!l) return p.unit === 'lb' ? 135 : 60;
+  if (!l) return 0;  // bars start blank until the lifter enters a weight
   if (l.u === p.unit) return l.t;
   const t = parseFloat(l.t);
   return isFinite(t) ? roundFor(fromKg(toKg(t, l.u), p.unit), p.unit) : l.t;
