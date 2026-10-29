@@ -8,6 +8,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Plates">
 <title>Plate Loader</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<meta name="theme-color" content="#c8202a">
 <style>
 /* Layout: one narrow column — lifter, bar, target up top; load options in two plate groups; setup in a drawer */
 :root {
@@ -124,6 +128,10 @@ details.panel[open] summary::after { content: "Hide"; }
 .mybar { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .grow { flex: 1; }
 .w-num { width: 96px; }
+.install { display: flex; gap: 10px; align-items: flex-start; background: var(--surface); border: 1px solid var(--accent); border-radius: 14px; padding: 12px 14px; }
+.install img { width: 40px; height: 40px; border-radius: 9px; flex: none; }
+.install p { margin: 0; font-size: 15px; flex: 1; min-width: 0; }
+.install button { font: 600 14px var(--font-ui); color: var(--muted); background: transparent; border: 0; padding: 4px; }
 @media (prefers-reduced-motion: reduce) { .btn:active { transform: none; } }
 </style>
 </head>
@@ -136,6 +144,12 @@ details.panel[open] summary::after { content: "Hide"; }
       <button type="button" id="u-kg" aria-pressed="false">kg</button>
     </div>
   </header>
+
+  <div class="install" id="install" hidden>
+    <img src="icon-180.png" alt="">
+    <p id="install-text"></p>
+    <button type="button" id="install-close" aria-label="Hide this tip">Hide</button>
+  </div>
 
   <div class="lifters" id="lifters" role="group" aria-label="Lifter"></div>
 
@@ -227,12 +241,13 @@ details.panel[open] summary::after { content: "Hide"; }
     </div>
   </details>
 
+  <p class="note" style="text-align:center">Brought to you by <a href="mailto:dpowers@powersprosolutions.com" style="color:inherit">dpowers@powersprosolutions.com</a></p>
   <p class="note" id="version" style="text-align:center"></p>
 </main>
 
 <script>
 // Bump this with every upload so you can tell which version a phone is running
-const APP_VERSION = '1.4 · Oct 29, 2026';
+const APP_VERSION = '1.5 · Oct 29, 2026';
 
 const KG_PER_LB = 0.45359237;
 // Plates this size and under count as "small" (some racks don't have them); set in Gym setup
@@ -698,6 +713,26 @@ $('reset').onclick = () => {
   S = { ...DEFAULTS(), profiles: S.profiles, profileId: S.profileId, lifts: S.lifts, myBars: S.myBars }; resetArmed = false;
   $('reset').textContent = 'Reset plates and settings'; update();
 };
+
+// ---- Home Screen install tip + offline support
+const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+const android = /Android/.test(navigator.userAgent);
+let tipHidden = false;
+try { tipHidden = localStorage.getItem('plate-loader-tip') === 'hidden'; } catch (e) {}
+if (!standalone && !tipHidden && (ios || android)) {
+  $('install-text').innerHTML = ios
+    ? 'Install it: tap <strong>Share</strong> <span aria-hidden="true">⬆︎</span>, then <strong>Add to Home Screen</strong>. Open it from that icon so your lifts are saved and it works offline.'
+    : 'Install it: tap the browser menu <strong>⋮</strong>, then <strong>Add to Home screen</strong> or <strong>Install app</strong>.';
+  $('install').hidden = false;
+}
+$('install-close').onclick = () => {
+  $('install').hidden = true;
+  try { localStorage.setItem('plate-loader-tip', 'hidden'); } catch (e) {}
+};
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
 
 $('version').textContent = `Plate Loader version ${APP_VERSION}`;
 targetFromLift();
