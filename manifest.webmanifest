@@ -1,0 +1,14 @@
+{
+  "name": "Plate Loader",
+  "short_name": "Plates",
+  "description": "Pick a lift and a bar, enter a target, and see which plates to load.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#eef0f3",
+  "theme_color": "#c8202a",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
