@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Plates">
+<title>Plate Loader</title>
+<style>
+/* Layout: one narrow column — lifter, bar, target up top; load options in two plate groups; setup in a drawer */
+:root {
+  --bg: #eef0f3;
+  --surface: #ffffff;
+  --ink: #15181d;
+  --muted: #5d6470;
+  --line: #d9dde3;
+  --accent: #c8202a;
+  --accent-ink: #ffffff;
+  --sleeve: #a3a9b1;
+  --good: #1f8a4c;
+  --light: #2c6fb5;
+  --plate-edge: rgba(0,0,0,.25);
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-num: ui-rounded, "SF Pro Rounded", -apple-system, system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1114; --surface: #1a1d22; --ink: #eef0f3; --muted: #9aa1ab; --line: #2c3038;
+    --accent: #ff4b52; --accent-ink: #1a0405; --sleeve: #6e747d; --good: #46c27a; --light: #6aa8ea; --plate-edge: rgba(255,255,255,.25);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1114; --surface: #1a1d22; --ink: #eef0f3; --muted: #9aa1ab; --line: #2c3038;
+  --accent: #ff4b52; --accent-ink: #1a0405; --sleeve: #6e747d; --good: #46c27a; --light: #6aa8ea; --plate-edge: rgba(255,255,255,.25);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.4 var(--font-ui);
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main { max-width: 520px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+h1 { font: 700 22px/1.1 var(--font-num); margin: 0; letter-spacing: -.01em; }
+h1 span { color: var(--accent); }
+h2 { font: 700 17px/1.2 var(--font-num); margin: 0; }
+.label { font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+select, input[type=number], input[type=text] {
+  font: inherit; font-size: 17px; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 12px; min-width: 0;
+}
+select { flex: 1; appearance: none; -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 55%, calc(100% - 12px) 55%; background-size: 6px 6px; background-repeat: no-repeat; padding-right: 32px; }
+input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.seg { display: inline-flex; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.seg button { font: 600 15px var(--font-ui); border: 0; background: transparent; color: var(--muted); padding: 7px 14px; border-radius: 7px; }
+.seg button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); }
+.lifters { display: flex; gap: 8px; flex-wrap: wrap; }
+.lifters button { font: 600 16px var(--font-ui); color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 99px; padding: 8px 18px; }
+.lifters button[aria-pressed=true] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.barinfo { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.target input { font: 700 34px/1 var(--font-num); text-align: center; padding: 10px; font-variant-numeric: tabular-nums; width: 100%; }
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.btn { font: 600 15px var(--font-ui); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 8px; font-variant-numeric: tabular-nums; }
+.btn:active { transform: scale(.97); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.note { font-size: 14px; color: var(--muted); margin: 0; }
+.note.warn { color: var(--accent); }
+
+.group { display: flex; flex-direction: column; gap: 10px; }
+.group-head { display: flex; flex-direction: column; gap: 2px; padding-top: 4px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.card.match { border: 2px solid var(--good); }
+.card.light { border-style: dashed; }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.pill { font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; padding: 4px 9px; border-radius: 99px; background: var(--bg); color: var(--muted); }
+.card.match .pill { background: var(--good); color: var(--surface); }
+.card.light .pill { background: var(--light); color: var(--surface); }
+.card.last { border: 2px solid var(--ink); }
+.card.last .pill { background: var(--ink); color: var(--surface); }
+.use { font: 600 14px var(--font-ui); color: var(--accent); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; align-self: flex-start; }
+.use[aria-pressed=true] { color: var(--good); border-color: var(--good); }
+.diff { font: 600 14px var(--font-num); color: var(--muted); font-variant-numeric: tabular-nums; }
+.total { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.total b { font: 800 28px/1 var(--font-num); font-variant-numeric: tabular-nums; }
+.total span { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.side { font-size: 15px; }
+.side strong { font-variant-numeric: tabular-nums; }
+
+/* one sleeve drawn to the side: collar stop, plates heaviest-in, optional collar */
+.sleeve { position: relative; height: 70px; display: flex; align-items: center; gap: 2px; padding-left: 4px; overflow-x: auto; }
+.sleeve::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 9px; transform: translateY(-50%); background: var(--sleeve); border-radius: 3px; z-index: 0; }
+.stop { position: relative; z-index: 1; width: 8px; height: 26px; background: var(--sleeve); border-radius: 2px; flex: none; margin-right: 2px; filter: brightness(.85); }
+.plate { position: relative; z-index: 1; flex: none; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--plate-edge); display: flex; align-items: center; justify-content: center; }
+.plate i { font: 700 9px var(--font-num); font-style: normal; writing-mode: vertical-rl; transform: rotate(180deg); }
+.collar { position: relative; z-index: 1; width: 12px; height: 22px; background: #b89a4b; border-radius: 2px; flex: none; margin-left: 2px; }
+
+details.panel summary { font-weight: 600; cursor: pointer; list-style: none; display: flex; justify-content: space-between; }
+details.panel summary::-webkit-details-marker { display: none; }
+details.panel summary::after { content: "Show"; color: var(--accent); font-weight: 600; }
+details.panel[open] summary::after { content: "Hide"; }
+.plates-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; }
+.swatch { display: inline-block; width: 14px; height: 14px; border-radius: 50%; vertical-align: -2px; margin-right: 8px; box-shadow: inset 0 0 0 1px var(--plate-edge); }
+.stepper { display: flex; align-items: center; gap: 6px; }
+.stepper button { width: 36px; height: 36px; padding: 0; font-size: 20px; }
+.stepper output { min-width: 26px; text-align: center; font: 700 17px var(--font-num); font-variant-numeric: tabular-nums; }
+.sub { border-top: 1px solid var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.mybar { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.grow { flex: 1; }
+.w-num { width: 96px; }
+@media (prefers-reduced-motion: reduce) { .btn:active { transform: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Plate <span>Loader</span></h1>
+    <div class="seg" role="group" aria-label="Target units">
+      <button type="button" id="u-lb" aria-pressed="true">lb</button>
+      <button type="button" id="u-kg" aria-pressed="false">kg</button>
+    </div>
+  </header>
+
+  <div class="lifters" id="lifters" role="group" aria-label="Lifter"></div>
+
+  <section class="panel" aria-label="Bar">
+    <div class="label">Bar</div>
+    <select id="bar" aria-label="Bar"></select>
+    <div class="row" id="custom-row" hidden>
+      <input type="number" id="custom-w" inputmode="decimal" step="any" class="grow" aria-label="Bar weight">
+      <div class="seg" role="group" aria-label="Bar weight units">
+        <button type="button" id="cu-lb" aria-pressed="true">lb</button>
+        <button type="button" id="cu-kg" aria-pressed="false">kg</button>
+      </div>
+    </div>
+    <div class="barinfo" id="barinfo"></div>
+  </section>
+
+  <section class="panel target" aria-label="Target">
+    <div class="label" id="target-label">Target weight (lb)</div>
+    <input type="number" id="target" inputmode="decimal" step="any" aria-labelledby="target-label">
+    <div class="steps" id="steps"></div>
+    <div class="barinfo" id="saved"></div>
+  </section>
+
+  <div class="row" id="set-row">
+    <span class="label grow">This rack has</span>
+    <div class="seg" role="group" aria-label="Plate set to show first">
+      <button type="button" id="set-big" aria-pressed="true">No small plates</button>
+      <button type="button" id="set-small" aria-pressed="false">Small plates</button>
+    </div>
+  </div>
+
+  <div id="results" class="group"></div>
+
+  <details class="panel" id="setup">
+    <summary>Gym setup</summary>
+    <div class="label">Lifters</div>
+    <div id="lifter-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div class="row">
+      <input type="text" id="nl-name" placeholder="Add a lifter" class="grow" aria-label="New lifter name">
+      <button type="button" class="btn primary" id="nl-add">Add lifter</button>
+    </div>
+
+    <div class="sub">
+      <div class="label">Plates available per side</div>
+      <div class="plates-grid" id="plates"></div>
+      <label class="row"><span class="grow">Small plates are</span>
+        <select id="small-kg" class="w-num" style="flex:none" aria-label="Small plate cutoff"></select>
+        <span class="barinfo">kg and under</span></label>
+    </div>
+
+    <div class="sub">
+      <label class="row"><input type="checkbox" id="collars"> <span class="grow">Use collars</span>
+        <input type="number" id="collar-kg" inputmode="decimal" step="any" class="w-num" aria-label="Collar weight each"> <span class="barinfo">kg each</span></label>
+      <label class="row"><span class="grow">Count as a match within</span>
+        <input type="number" id="tol" inputmode="decimal" step="any" class="w-num" aria-label="Match tolerance in pounds"> <span class="barinfo">lb</span></label>
+    </div>
+
+    <div class="sub">
+      <div class="label">Add a bar</div>
+      <input type="text" id="nb-name" placeholder="Name, e.g. Axle Bar" aria-label="New bar name">
+      <div class="row">
+        <input type="number" id="nb-w" inputmode="decimal" step="any" placeholder="Weight" class="grow" aria-label="New bar weight">
+        <div class="seg" role="group" aria-label="New bar units">
+          <button type="button" id="nb-lb" aria-pressed="true">lb</button>
+          <button type="button" id="nb-kg" aria-pressed="false">kg</button>
+        </div>
+        <button type="button" class="btn primary" id="nb-add">Add bar</button>
+      </div>
+      <div id="mybars" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+
+    <div class="sub">
+      <button type="button" class="btn" id="reset">Reset plates and settings</button>
+    </div>
+  </details>
+</main>
+
+<script>
+const KG_PER_LB = 0.45359237;
+// Plates this size and under count as "small" (some racks don't have them); set in Gym setup
+const SMALL_CHOICES = [10, 5, 2.5, 1.25, 0.5, 0.25];
+const smallKg = () => S.smallKg || 2.5;
+
+// Bars from the gym's posted Barbell Directory (weights in lb). The first four are the
+// main bars; the power bar is a standard 20 kg guess (it isn't on the posted list).
+const MAIN_BARS = 4;
+const DEFAULT_BARS = [
+  { id: 'trap',     name: 'Trap Bar',              w: 51, u: 'lb' },
+  { id: 'swiss',    name: 'Swiss Bar',             w: 45, u: 'lb' },
+  { id: 'football', name: 'Football Bar',          w: 45, u: 'lb' },
+  { id: 'elite',    name: 'Elite FTS SSB',         w: 63, u: 'lb' },
+  { id: 'cmg',      name: 'Cambered Multi Grip Bar', w: 47, u: 'lb' },
+  { id: 'cbench',   name: 'Cambered Bench Bar',    w: 45, u: 'lb' },
+  { id: 'buffalo',  name: 'Buffalo Bar (Black)',   w: 51, u: 'lb' },
+  { id: 'duffalo',  name: 'Kabuki Duffalo Bar',    w: 57, u: 'lb' },
+  { id: 'csquat',   name: 'Cambered Squat Bar',    w: 85, u: 'lb' },
+  { id: 'transformer', name: 'Kabuki Transformer Bar', w: 58, u: 'lb' },
+  { id: 'opentrap', name: 'Open Trap Bar',         w: 92, u: 'lb' },
+  { id: 'marrs',    name: 'Marrs Bar',             w: 64, u: 'lb' },
+  { id: 'titan',    name: 'Titan SSB',             w: 62, u: 'lb' },
+  { id: 'seal',     name: 'Seal Row Bar',          w: 50, u: 'lb' },
+  { id: 'rackez',   name: 'Rackable E-Z Curl Bar', w: 30, u: 'lb' },
+  { id: 'ez',       name: 'E-Z Curl Bar',          w: 17, u: 'lb' },
+  { id: 'hammer',   name: 'Hammer Curl Bar',       w: 17, u: 'lb' },
+  { id: 'power',    name: 'Power Bar (20 kg)',     w: 20, u: 'kg' },
+];
+
+// IPF competition plate colors; h = height %, t = thickness px, n = default count per side.
+// Yellow 15s start switched off (0) — turn them on in Gym setup.
+const PLATES = [
+  { kg: 25,   color: '#d6222b', ink: '#fff', h: 100, t: 16, n: 8 },
+  { kg: 20,   color: '#1d5fc4', ink: '#fff', h: 100, t: 14, n: 2 },
+  { kg: 15,   color: '#f1c21b', ink: '#222', h: 100, t: 12, n: 0 },
+  { kg: 10,   color: '#2f9a4a', ink: '#fff', h: 74,  t: 11, n: 2 },
+  { kg: 5,    color: '#f4f4f2', ink: '#222', h: 54,  t: 9,  n: 2 },
+  { kg: 2.5,  color: '#c3c7cc', ink: '#222', h: 48,  t: 7,  n: 2 },
+  { kg: 1.25, color: '#c3c7cc', ink: '#222', h: 38,  t: 6,  n: 1 },
+  { kg: 0.5,  color: '#c3c7cc', ink: '#222', h: 32,  t: 5,  n: 2 },
+  { kg: 0.25, color: '#c3c7cc', ink: '#222', h: 28,  t: 4,  n: 1 },
+];
+
+// plateSet: which group shows first — 'big' (5 kg and up) or 'small' (with change plates).
+// last[barId] = { t, u, d, s: plateSet for this bar, lift: { kg, plates: [kg…], s, d } }
+const newLifter = (id, name) => ({ id, name, barId: 'trap', unit: 'lb', plateSet: 'big', last: {} });
+const DEFAULTS = () => ({
+  profiles: [newLifter('l1', 'Lifter 1')], profileId: 'l1', smallKg: 2.5,
+  custom: { w: 45, u: 'lb' },
+  counts: Object.fromEntries(PLATES.map(p => [p.kg, p.n])),
+  collars: false, collarKg: 2.5, tolLb: 1, myBars: [], newBarUnit: 'lb',
+});
+
+const KEY = 'plate-loader-v2';
+let S = DEFAULTS();
+try {
+  const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+  if (saved) S = { ...S, ...saved, counts: { ...S.counts, ...(saved.counts || {}) } };
+  if (!S.profiles || !S.profiles.length) S.profiles = DEFAULTS().profiles;
+} catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
+
+const $ = id => document.getElementById(id);
+const toKg = (w, u) => u === 'kg' ? w : w * KG_PER_LB;
+const fromKg = (kg, u) => u === 'kg' ? kg : kg / KG_PER_LB;
+const other = u => u === 'kg' ? 'lb' : 'kg';
+const fmt = (n, d) => (Math.round(n * 10 ** d) / 10 ** d).toString();
+const fmtU = (kg, u) => u === 'kg' ? fmt(kg, 2) : fmt(fromKg(kg, 'lb'), 1);
+const roundFor = (v, u) => u === 'lb' ? Math.round(v) : Math.round(v * 4) / 4;
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
+
+// ---- lifter + per-bar memory
+const P = () => S.profiles.find(p => p.id === S.profileId) || S.profiles[0];
+function getTarget() {
+  const p = P(), l = p.last[p.barId];
+  if (!l) return p.unit === 'lb' ? 135 : 60;
+  if (l.u === p.unit) return l.t;
+  const t = parseFloat(l.t);
+  return isFinite(t) ? roundFor(fromKg(toKg(t, l.u), p.unit), p.unit) : l.t;
+}
+function setTarget(v) { const p = P(); p.last[p.barId] = { ...p.last[p.barId], t: v, u: p.unit, d: Date.now() }; }
+function barEntry() { const p = P(); return p.last[p.barId] || (p.last[p.barId] = { t: getTarget(), u: p.unit, d: Date.now() }); }
+// Start the target at the last lift saved for this lifter + bar
+function targetFromLift() {
+  const p = P(), e = p.last[p.barId];
+  if (e && e.lift) { e.t = parseFloat(fmtU(e.lift.kg, p.unit)); e.u = p.unit; }
+}
+const plateSet = () => (P().last[P().barId] || {}).s || P().plateSet || 'big';
+
+function allBars() { return [...DEFAULT_BARS, ...S.myBars]; }
+function currentBar() {
+  const id = P().barId;
+  if (id === 'custom') return { name: 'Custom', w: S.custom.w, u: S.custom.u };
+  return allBars().find(b => b.id === id) || DEFAULT_BARS[0];
+}
+
+// Every per-side load the plate inventory can make, keeping the fewest-plates
+// (then heaviest-first) way to build each one. bigOnly leaves out the small plates.
+const loadCache = {};
+function buildLoads(bigOnly) {
+  const plates = PLATES.map(p => ({ ...p, n: S.counts[p.kg] || 0 }))
+    .filter(p => p.n > 0 && (!bigOnly || p.kg > smallKg()));
+  const key = plates.map(p => p.kg + 'x' + p.n).join(',');
+  if (loadCache[key]) return loadCache[key];
+  const better = (a, b) => {
+    const na = a.reduce((x, y) => x + y, 0), nb = b.reduce((x, y) => x + y, 0);
+    if (na !== nb) return na < nb;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] > b[i];
+    return false;
+  };
+  let states = new Map([[0, []]]);
+  for (const p of plates) {
+    const g = Math.round(p.kg * 1000);
+    const next = new Map();
+    for (const [sum, cnt] of states) {
+      for (let k = 0; k <= p.n; k++) {
+        const s = sum + k * g, c = cnt.concat(k), prev = next.get(s);
+        if (!prev || better(c, prev)) next.set(s, c);
+      }
+    }
+    states = next;
+  }
+  return loadCache[key] = [...states].map(([g, c]) => ({
+    side: g / 1000,
+    plates: plates.flatMap((p, i) => Array(c[i]).fill(p)),
+  })).sort((a, b) => a.side - b.side);
+}
+
+function render() {
+  const p = P(), u = p.unit;
+  $('lifters').innerHTML = S.profiles.map(x =>
+    `<button type="button" data-lifter="${x.id}" aria-pressed="${x.id === p.id}">${esc(x.name)}</button>`).join('') +
+    `<button type="button" data-addlifter="1" aria-label="Add or rename lifters">+ Lifter</button>`;
+  $('u-lb').setAttribute('aria-pressed', u === 'lb');
+  $('u-kg').setAttribute('aria-pressed', u === 'kg');
+  $('set-big').setAttribute('aria-pressed', plateSet() !== 'small');
+  $('set-small').setAttribute('aria-pressed', plateSet() === 'small');
+  $('target-label').textContent = `Target weight (${u})`;
+  const steps = u === 'lb' ? [-10, -5, 5, 10] : [-5, -2.5, 2.5, 5];
+  $('steps').innerHTML = steps.map(s => `<button type="button" class="btn" data-step="${s}">${s > 0 ? '+' : '−'}${Math.abs(s)}</button>`).join('');
+
+  // bar
+  const opt = b => `<option value="${b.id}"${b.id === p.barId ? ' selected' : ''}>${esc(b.name)}${b.w != null ? ` — ${b.w} ${b.u}` : ''}</option>`;
+  const group = (label, bars) => bars.length ? `<optgroup label="${label}">${bars.map(opt).join('')}</optgroup>` : '';
+  $('bar').innerHTML =
+    group('My bars', [...DEFAULT_BARS.slice(0, MAIN_BARS), ...S.myBars]) +
+    group('Other gym bars', DEFAULT_BARS.slice(MAIN_BARS)) +
+    opt({ id: 'custom', name: 'Custom weight…' });
+  $('custom-row').hidden = p.barId !== 'custom';
+  $('cu-lb').setAttribute('aria-pressed', S.custom.u === 'lb');
+  $('cu-kg').setAttribute('aria-pressed', S.custom.u === 'kg');
+  if (document.activeElement !== $('custom-w')) $('custom-w').value = S.custom.w;
+  const bar = currentBar();
+  const barKg = toKg(+bar.w || 0, bar.u);
+  const collarKg = S.collars ? 2 * (+S.collarKg || 0) : 0;
+  const baseKg = barKg + collarKg;
+  $('barinfo').textContent = `Bar ${fmtU(barKg, 'lb')} lb · ${fmtU(barKg, 'kg')} kg` +
+    (collarKg ? ` · with collars ${fmtU(baseKg, u)} ${u}` : '');
+
+  if (document.activeElement !== $('target')) $('target').value = getTarget();
+  const last = p.last[p.barId];
+  $('saved').textContent = last
+    ? `${p.name}'s last ${bar.name}: ${last.t} ${last.u} · ${new Date(last.d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
+    : `No saved weight for ${p.name} on the ${bar.name} yet`;
+
+  // setup drawer
+  $('lifter-list').innerHTML = S.profiles.map(x => `
+    <div class="mybar">
+      <input type="text" class="grow" value="${esc(x.name)}" data-rename="${x.id}" aria-label="Lifter name">
+      <button type="button" class="btn" data-remove="${x.id}">Remove</button>
+    </div>`).join('');
+  $('plates').innerHTML = PLATES.map(pl => `
+    <div><span class="swatch" style="background:${pl.color}"></span>${pl.kg} kg</div>
+    <div class="stepper">
+      <button type="button" class="btn" data-plate="${pl.kg}" data-d="-1" aria-label="One fewer ${pl.kg} kg">−</button>
+      <output>${S.counts[pl.kg] || 0}</output>
+      <button type="button" class="btn" data-plate="${pl.kg}" data-d="1" aria-label="One more ${pl.kg} kg">+</button>
+    </div>`).join('');
+  $('small-kg').innerHTML = SMALL_CHOICES.map(k => `<option value="${k}"${k === smallKg() ? ' selected' : ''}>${k}</option>`).join('');
+  $('set-big').textContent = `No ${smallKg()} kg or less`;
+  $('set-small').textContent = 'All plates';
+  $('collars').checked = S.collars;
+  if (document.activeElement !== $('collar-kg')) $('collar-kg').value = S.collarKg;
+  if (document.activeElement !== $('tol')) $('tol').value = S.tolLb;
+  $('nb-lb').setAttribute('aria-pressed', S.newBarUnit === 'lb');
+  $('nb-kg').setAttribute('aria-pressed', S.newBarUnit === 'kg');
+  $('mybars').innerHTML = S.myBars.map(b => `
+    <div class="mybar"><span>${esc(b.name)} — ${b.w} ${b.u}</span>
+    <button type="button" class="btn" data-del="${b.id}">Remove</button></div>`).join('');
+
+  renderResults(baseKg);
+}
+
+let shown = [];  // loads on screen, indexed by each card's "Use this load" button
+function renderResults(baseKg) {
+  const u = P().unit, out = $('results');
+  shown = [];
+  const lift = (P().last[P().barId] || {}).lift;
+  const target = parseFloat(getTarget());
+  if (!isFinite(target) || target <= 0) {
+    out.innerHTML = (lift ? lastCard(lift, null) : '') + '<p class="note">Enter a target weight.</p>'; return;
+  }
+  const targetKg = toKg(target, u);
+  let html = lift ? lastCard(lift, targetKg) : '';
+  if (targetKg < baseKg - 1e-9) html += `<p class="note warn">That's lighter than the empty bar (${fmtU(baseKg, u)} ${u}).</p>`;
+
+  const hasSmall = PLATES.some(pl => pl.kg <= smallKg() && S.counts[pl.kg] > 0);
+  $('set-row').hidden = !hasSmall;
+  // Only the plate set picked with "This rack has" is shown
+  html += options(baseKg, targetKg, !hasSmall || plateSet() !== 'small');
+  out.innerHTML = html;
+}
+
+function options(baseKg, targetKg, bigOnly) {
+  const u = P().unit;
+  const loads = buildLoads(bigOnly).map(l => ({ ...l, total: baseKg + 2 * l.side }));
+  const dd = l => fromKg(l.total - targetKg, u);  // difference in the target's unit
+  const tol = u === 'lb' ? S.tolLb : S.tolLb * KG_PER_LB;
+  const eps = 0.005;
+
+  let closest = loads[0];
+  for (const l of loads) if (Math.abs(dd(l)) < Math.abs(dd(closest))) closest = l;
+  const exact = Math.abs(dd(closest)) < eps;
+  const match = Math.abs(dd(closest)) <= tol + 1e-9 ? closest : null;
+  const below = [...loads].reverse().find(l => dd(l) < -eps);
+  const above = loads.find(l => dd(l) > eps);
+
+  const cards = [];
+  if (match) cards.push(card(match, exact ? 'Exact match' : 'Close match', 'match', dd(match), null, bigOnly));
+  if (!exact && above && above !== match) cards.push(card(above, 'Over target', '', dd(above), null, bigOnly));
+  if (!match && below) cards.push(card(below, 'Under target', '', dd(below), null, bigOnly));
+
+  // Lighter set: aim for 12.5% under, anywhere in the 10–15% band counts
+  if (targetKg > baseKg) {
+    const lo = targetKg * 0.85, hi = targetKg * 0.90, mid = targetKg * 0.875;
+    const inBand = loads.filter(l => l.total >= lo - 1e-9 && l.total <= hi + 1e-9);
+    // Nothing in the band: nearest lighter load, skipping the one already shown as "Under target"
+    const pool = inBand.length ? inBand
+      : loads.filter(l => l.total < targetKg - 1e-9 && !(l === below && !match));
+    const light = pool.length && pool.reduce((a, b) => Math.abs(b.total - mid) < Math.abs(a.total - mid) ? b : a);
+    if (light) {
+      cards.push(card(light, inBand.length ? '10–15% lighter' : 'Nearest lighter', 'light', dd(light),
+        (light.total / targetKg - 1) * 100, bigOnly));
+    }
+  }
+
+  let note = '';
+  if (!above && !match) note = `<p class="note warn">That's more than these plates can load. Add plates in Gym setup.</p>`;
+  else if (!match) note = `<p class="note">Nothing within ${fmt(S.tolLb, 2)} lb.</p>`;
+  return note + cards.join('');
+}
+
+// The saved lift for this lifter + bar, rebuilt from its plate list
+function lastCard(lift, targetKg) {
+  const u = P().unit;
+  const l = { total: lift.kg, plates: lift.plates.map(kg => PLATES.find(p => p.kg === kg)).filter(Boolean) };
+  const when = new Date(lift.d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  const diff = targetKg == null ? null : fromKg(lift.kg - targetKg, u);
+  return card(l, `Last lift · ${when}`, 'last', diff, null, null);
+}
+
+function card(l, label, kind, diff, pct, bigOnly) {
+  const u = P().unit;
+  const half = u === 'lb' ? 0.05 : 0.005;  // anything that rounds to 0 is on target
+  let d = diff == null ? '' : Math.abs(diff) < half ? 'on target' : `${diff > 0 ? '+' : '−'}${fmt(Math.abs(diff), u === 'lb' ? 1 : 2)} ${u}`;
+  if (pct != null) d = `−${fmt(Math.abs(pct), 0)}% · ${d}`;
+  let use = '';
+  if (bigOnly != null) {
+    const lift = (P().last[P().barId] || {}).lift;
+    const picked = lift && Math.abs(lift.kg - l.total) < 1e-6 && lift.plates.join() === l.plates.map(p => p.kg).join();
+    shown.push({ l, s: bigOnly ? 'big' : 'small' });
+    use = `<button type="button" class="use" data-use="${shown.length - 1}" aria-pressed="${!!picked}">${picked ? 'Saved as last lift ✓' : 'Use this load'}</button>`;
+  }
+  const groups = [];
+  for (const p of l.plates) {
+    const g = groups[groups.length - 1];
+    if (g && g.kg === p.kg) g.n++; else groups.push({ kg: p.kg, n: 1 });
+  }
+  const sideText = groups.length ? groups.map(g => `<strong>${g.kg}</strong>${g.n > 1 ? ` × ${g.n}` : ''}`).join(' · ') : 'Empty bar';
+  const plates = l.plates.map(p =>
+    `<div class="plate" style="background:${p.color};color:${p.ink};height:${p.h * .9}%;width:${p.t}px"><i>${p.t >= 9 ? p.kg : ''}</i></div>`).join('');
+  return `
+  <article class="card ${kind}">
+    <div class="card-head"><span class="pill">${label}</span><span class="diff">${d}</span></div>
+    <div class="total"><b>${fmtU(l.total, u)} ${u}</b><span>${fmtU(l.total, other(u))} ${other(u)}</span></div>
+    <div class="side">Each side (kg): ${sideText}</div>
+    <div class="sleeve" aria-hidden="true"><div class="stop"></div>${plates}${S.collars ? '<div class="collar"></div>' : ''}</div>
+    ${use}
+  </article>`;
+}
+
+const update = () => { save(); render(); };
+
+// ---- events
+function setUnit(u) {
+  const p = P();
+  if (u === p.unit) return;
+  const t = parseFloat(getTarget());
+  p.unit = u;
+  if (isFinite(t)) setTarget(roundFor(fromKg(toKg(t, other(u)), u), u));
+  update();
+}
+$('u-lb').onclick = () => setUnit('lb');
+$('u-kg').onclick = () => setUnit('kg');
+const pickSet = s => { P().plateSet = s; barEntry().s = s; update(); };
+$('set-big').onclick = () => pickSet('big');
+$('set-small').onclick = () => pickSet('small');
+$('results').onclick = e => {
+  const b = e.target.closest('[data-use]'); if (!b) return;
+  const { l, s } = shown[+b.dataset.use];
+  const entry = barEntry();
+  entry.s = s; P().plateSet = s;
+  entry.lift = { kg: l.total, plates: l.plates.map(p => p.kg), s, d: Date.now() };
+  targetFromLift(); update();
+};
+$('lifters').onclick = e => {
+  if (e.target.closest('[data-addlifter]')) { $('setup').open = true; $('nl-name').focus(); return; }
+  const b = e.target.closest('[data-lifter]'); if (!b) return;
+  S.profileId = b.dataset.lifter; $('target').blur(); targetFromLift(); update();
+};
+$('bar').onchange = e => { P().barId = e.target.value; targetFromLift(); update(); };
+$('custom-w').oninput = e => { S.custom.w = parseFloat(e.target.value) || 0; update(); };
+$('cu-lb').onclick = () => { S.custom.u = 'lb'; update(); };
+$('cu-kg').onclick = () => { S.custom.u = 'kg'; update(); };
+$('target').oninput = e => { setTarget(e.target.value); update(); };
+$('target').onfocus = e => e.target.select();
+$('steps').onclick = e => {
+  const b = e.target.closest('[data-step]'); if (!b) return;
+  const t = parseFloat(getTarget()) || 0;
+  setTarget(Math.max(0, Math.round((t + parseFloat(b.dataset.step)) * 100) / 100)); update();
+};
+$('plates').onclick = e => {
+  const b = e.target.closest('[data-plate]'); if (!b) return;
+  const k = b.dataset.plate;
+  S.counts[k] = Math.max(0, Math.min(20, (S.counts[k] || 0) + +b.dataset.d)); update();
+};
+$('small-kg').onchange = e => { S.smallKg = parseFloat(e.target.value); update(); };
+$('collars').onchange = e => { S.collars = e.target.checked; update(); };
+$('collar-kg').oninput = e => { S.collarKg = parseFloat(e.target.value) || 0; update(); };
+$('tol').oninput = e => { S.tolLb = Math.max(0, parseFloat(e.target.value) || 0); update(); };
+
+// lifters
+$('lifter-list').addEventListener('change', e => {
+  const id = e.target.dataset.rename; if (!id) return;
+  const x = S.profiles.find(p => p.id === id), name = e.target.value.trim();
+  if (x && name) x.name = name;
+  update();
+});
+$('lifter-list').onclick = e => {
+  const b = e.target.closest('[data-remove]'); if (!b) return;
+  if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Tap to confirm'; return; }
+  S.profiles = S.profiles.filter(p => p.id !== b.dataset.remove);
+  if (!S.profiles.length) S.profiles = [newLifter('l-' + Date.now(), 'Lifter 1')];  // always keep one lifter
+  if (!S.profiles.some(p => p.id === S.profileId)) S.profileId = S.profiles[0].id;
+  update();
+};
+$('nl-add').onclick = () => {
+  const name = $('nl-name').value.trim();
+  if (!name) { $('nl-name').focus(); return; }
+  const x = newLifter('l-' + Date.now(), name);
+  S.profiles.push(x); S.profileId = x.id; $('nl-name').value = ''; update();
+};
+
+// bars
+$('nb-lb').onclick = () => { S.newBarUnit = 'lb'; update(); };
+$('nb-kg').onclick = () => { S.newBarUnit = 'kg'; update(); };
+$('nb-add').onclick = () => {
+  const name = $('nb-name').value.trim(), w = parseFloat($('nb-w').value);
+  if (!name || !(w > 0)) { $('nb-name').focus(); return; }
+  const id = 'my-' + Date.now();
+  S.myBars.push({ id, name, w, u: S.newBarUnit });
+  P().barId = id; $('nb-name').value = ''; $('nb-w').value = ''; update();
+};
+$('mybars').onclick = e => {
+  const b = e.target.closest('[data-del]'); if (!b) return;
+  S.myBars = S.myBars.filter(x => x.id !== b.dataset.del);
+  S.profiles.forEach(p => { if (p.barId === b.dataset.del) p.barId = 'trap'; });
+  update();
+};
+let resetArmed = false;
+$('reset').onclick = () => {
+  if (!resetArmed) { resetArmed = true; $('reset').textContent = 'Tap again to reset (lifters and added bars stay)'; return; }
+  S = { ...DEFAULTS(), profiles: S.profiles, profileId: S.profileId, myBars: S.myBars }; resetArmed = false;
+  $('reset').textContent = 'Reset plates and settings'; update();
+};
+
+targetFromLift();
+render();
+</script>
+</body>
+</html>
