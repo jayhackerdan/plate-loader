@@ -81,6 +81,9 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 .barinfo { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .target input { font: 700 34px/1 var(--font-num); text-align: center; padding: 10px; font-variant-numeric: tabular-nums; width: 100%; }
 .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.steps.by-plate { grid-template-columns: repeat(3, 1fr); }
+.steps .swatch { width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; }
+.step-mode { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .btn { font: 600 15px var(--font-ui); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 8px; font-variant-numeric: tabular-nums; }
 .btn:active { transform: scale(.97); }
 .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
@@ -176,6 +179,13 @@ details.panel[open] summary::after { content: "Hide"; }
     <div class="label" id="target-label">Target weight (lb)</div>
     <input type="number" id="target" inputmode="decimal" step="any" aria-labelledby="target-label">
     <div class="steps" id="steps"></div>
+    <div class="step-mode">
+      <span class="barinfo" id="step-note"></span>
+      <div class="seg" role="group" aria-label="What the buttons add">
+        <button type="button" id="sm-unit" aria-pressed="true">lb</button>
+        <button type="button" id="sm-plate" aria-pressed="false">Plates</button>
+      </div>
+    </div>
     <div class="barinfo" id="saved"></div>
   </section>
 
@@ -247,7 +257,7 @@ details.panel[open] summary::after { content: "Hide"; }
 
 <script>
 // Bump this with every upload so you can tell which version a phone is running
-const APP_VERSION = '1.5 · Oct 29, 2026';
+const APP_VERSION = '1.6 · Oct 29, 2026';
 
 const KG_PER_LB = 0.45359237;
 // Plates this size and under count as "small" (some racks don't have them); set in Gym setup
@@ -278,6 +288,15 @@ const DEFAULT_BARS = [
   { id: 'hammer',   name: 'Hammer Curl Bar',       w: 17, u: 'lb' },
   { id: 'power',    name: 'Power Bar (20 kg)',     w: 20, u: 'kg' },
 ];
+
+// Plate sizes offered when the ± buttons are set to "Plates" (one plate added to each side):
+// the first three the rack has, skipping small plates when "This rack has" excludes them
+function stepPlates() {
+  const hasSmall = PLATES.some(pl => pl.kg <= smallKg() && S.counts[pl.kg] > 0);
+  const bigOnly = !hasSmall || plateSet() !== 'small';
+  const order = bigOnly ? [5, 10, 20, 25, 15] : [1.25, 2.5, 5, 0.5, 0.25, 10];
+  return order.filter(kg => S.counts[kg] > 0 && (!bigOnly || kg > smallKg())).slice(0, 3).sort((a, b) => a - b);
+}
 
 // Bar drawings cropped from the gym's posted sheet (embedded so the page stays one file)
 const BAR_IMAGES = {
@@ -433,8 +452,23 @@ function render() {
   $('set-big').setAttribute('aria-pressed', plateSet() !== 'small');
   $('set-small').setAttribute('aria-pressed', plateSet() === 'small');
   $('target-label').textContent = `Target weight (${u})`;
-  const steps = u === 'lb' ? [-10, -5, 5, 10] : [-5, -2.5, 2.5, 5];
-  $('steps').innerHTML = steps.map(s => `<button type="button" class="btn" data-step="${s}">${s > 0 ? '+' : '−'}${Math.abs(s)}</button>`).join('');
+  // ± buttons: plain lb/kg steps, or one plate on each side
+  const byPlate = p.stepMode === 'plate';
+  $('sm-unit').textContent = u;
+  $('sm-unit').setAttribute('aria-pressed', !byPlate);
+  $('sm-plate').setAttribute('aria-pressed', byPlate);
+  $('steps').classList.toggle('by-plate', byPlate);
+  if (byPlate) {
+    const chip = kg => `<span class="swatch" style="background:${PLATES.find(pl => pl.kg === kg).color}"></span>`;
+    const sp = stepPlates();
+    $('steps').innerHTML = [...sp.map(kg => [kg, 1]), ...sp.map(kg => [kg, -1])].map(([kg, d]) =>
+      `<button type="button" class="btn" data-pstep="${d * kg}" aria-label="${d > 0 ? 'Add' : 'Remove'} a ${kg} kg plate on each side">${chip(kg)}${d > 0 ? '+' : '−'}${kg}</button>`).join('');
+    $('step-note').textContent = 'kg plate on each side';
+  } else {
+    const steps = u === 'lb' ? [-10, -5, 5, 10] : [-5, -2.5, 2.5, 5];
+    $('steps').innerHTML = steps.map(s => `<button type="button" class="btn" data-step="${s}">${s > 0 ? '+' : '−'}${Math.abs(s)}</button>`).join('');
+    $('step-note').textContent = `Buttons add ${u}`;
+  }
 
   // bar
   const opt = b => `<option value="${b.id}"${b.id === barId() ? ' selected' : ''}>${esc(b.name)}${b.w != null ? ` — ${b.w} ${b.u}` : ''}</option>`;
@@ -634,10 +668,21 @@ $('cu-kg').onclick = () => { S.custom.u = 'kg'; update(); };
 $('target').oninput = e => { setTarget(e.target.value); update(); };
 $('target').onfocus = e => e.target.select();
 $('steps').onclick = e => {
-  const b = e.target.closest('[data-step]'); if (!b) return;
-  const t = parseFloat(getTarget()) || 0;
-  setTarget(Math.max(0, Math.round((t + parseFloat(b.dataset.step)) * 100) / 100)); update();
+  const b = e.target.closest('[data-step], [data-pstep]'); if (!b) return;
+  const u = P().unit, bar = currentBar();
+  let t = parseFloat(getTarget()) || 0;
+  // a plate step adds that plate to both sides, converted to the target's unit,
+  // starting from the empty bar (plus collars) when the target is lighter than that
+  const delta = b.dataset.pstep ? fromKg(2 * parseFloat(b.dataset.pstep), u) : parseFloat(b.dataset.step);
+  if (b.dataset.pstep) {
+    const emptyKg = toKg(+bar.w || 0, bar.u) + (S.collars ? 2 * (+S.collarKg || 0) : 0);
+    t = Math.max(t, fromKg(emptyKg, u));
+  }
+  const places = u === 'lb' ? 10 : 100;
+  setTarget(Math.max(0, Math.round((t + delta) * places) / places)); update();
 };
+$('sm-unit').onclick = () => { P().stepMode = 'unit'; update(); };
+$('sm-plate').onclick = () => { P().stepMode = 'plate'; update(); };
 $('plates').onclick = e => {
   const b = e.target.closest('[data-plate]'); if (!b) return;
   const k = b.dataset.plate;
