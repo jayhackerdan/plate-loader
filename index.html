@@ -83,6 +83,19 @@ input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px s
 .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .steps.by-plate { grid-template-columns: repeat(3, 1fr); }
 .steps .swatch { width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; }
+.lifters button.whatif { border-style: dashed; }
+.lifters button.whatif[aria-pressed=true] { border-style: solid; }
+.builder { display: flex; flex-direction: column; gap: 10px; }
+/* plate tile: top half adds a plate on each side, bottom strip removes one */
+.palette { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.tile { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--bg); }
+.tile.on { border: 2px solid var(--ink); }
+.tile button { font: 700 16px var(--font-num); color: var(--ink); background: transparent; border: 0; font-variant-numeric: tabular-nums; }
+.tile button:disabled { opacity: .3; }
+.tile .add { padding: 10px 4px 8px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.tile .sub { border-top: 1px solid var(--line); padding: 9px 4px; font-size: 15px; color: var(--muted); }
+.tile .dot { width: 34px; height: 34px; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--plate-edge); display: flex; align-items: center; justify-content: center; font: 800 17px var(--font-num); }
+.wi-summary { display: flex; flex-direction: column; gap: 6px; }
 .step-mode { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .btn { font: 600 15px var(--font-ui); color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 8px; font-variant-numeric: tabular-nums; }
 .btn:active { transform: scale(.97); }
@@ -179,7 +192,13 @@ details.panel[open] summary::after { content: "Hide"; }
     <div class="label" id="target-label">Target weight (lb)</div>
     <input type="number" id="target" inputmode="decimal" step="any" aria-labelledby="target-label">
     <div class="steps" id="steps"></div>
-    <div class="step-mode">
+    <div class="builder" id="builder" hidden>
+      <div class="barinfo">Or load plates: top adds one on each side, bottom removes one</div>
+      <div class="palette" id="palette"></div>
+      <div class="wi-summary" id="wi-summary"></div>
+      <button type="button" class="btn" id="wi-clear">Clear to empty bar</button>
+    </div>
+    <div class="step-mode" id="step-mode">
       <span class="barinfo" id="step-note"></span>
       <div class="seg" role="group" aria-label="What the buttons add">
         <button type="button" id="sm-unit" aria-pressed="true">lb</button>
@@ -257,7 +276,7 @@ details.panel[open] summary::after { content: "Hide"; }
 
 <script>
 // Bump this with every upload so you can tell which version a phone is running
-const APP_VERSION = '1.6 · Oct 29, 2026';
+const APP_VERSION = '1.11 · Nov 11, 2026';
 
 const KG_PER_LB = 0.45359237;
 // Plates this size and under count as "small" (some racks don't have them); set in Gym setup
@@ -346,7 +365,11 @@ const DEFAULT_LIFTS = [
 //   liftCfg[liftId] = { barId, s }  — their bar for that lift and plate set ('big' = no small plates)
 //   last['liftId|barId'] = { t, u, d, lift: { kg, plates: [kg…], s, d } }
 const newLifter = (id, name) => ({ id, name, liftId: 'deadlift', unit: 'lb', plateSet: 'big', liftCfg: {}, last: {} });
+// "What if" is a scratch lifter for helping someone else: no history, no last lift.
+//   build = plates (kg) added on each side, in the order tapped; mode = 'build' (plates) or 'target' (typed weight)
+const newScratch = () => ({ ...newLifter('whatif', 'What if'), build: [], mode: 'build' });
 const DEFAULTS = () => ({
+  scratch: newScratch(),
   lifts: DEFAULT_LIFTS.map(l => ({ ...l })),
   profiles: [newLifter('l1', 'Lifter 1')], profileId: 'l1', smallKg: 2.5,
   custom: { w: 45, u: 'lb' },
@@ -361,6 +384,7 @@ try {
   if (saved) S = { ...S, ...saved, counts: { ...S.counts, ...(saved.counts || {}) } };
   if (!S.profiles || !S.profiles.length) S.profiles = DEFAULTS().profiles;
   if (!S.lifts || !S.lifts.length) S.lifts = DEFAULTS().lifts;
+  if (!S.scratch) S.scratch = newScratch();
 } catch (e) {}
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} };
 
@@ -374,7 +398,8 @@ const roundFor = (v, u) => u === 'lb' ? Math.round(v) : Math.round(v * 4) / 4;
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
 
 // ---- lifter → lift → bar memory
-const P = () => S.profiles.find(p => p.id === S.profileId) || S.profiles[0];
+const isWI = () => S.profileId === 'whatif';
+const P = () => isWI() ? S.scratch : (S.profiles.find(p => p.id === S.profileId) || S.profiles[0]);
 const L = () => S.lifts.find(l => l.id === P().liftId) || S.lifts[0];
 function cfg() {
   const p = P(), l = L();
@@ -441,7 +466,9 @@ function buildLoads(bigOnly) {
 
 function render() {
   const p = P(), u = p.unit;
-  $('lifters').innerHTML = S.profiles.map(x =>
+  $('lifters').innerHTML =
+    `<button type="button" class="whatif" data-lifter="whatif" aria-pressed="${isWI()}">What if</button>` +
+    S.profiles.map(x =>
     `<button type="button" data-lifter="${x.id}" aria-pressed="${x.id === p.id}">${esc(x.name)}</button>`).join('') +
     `<button type="button" data-addlifter="1" aria-label="Add or rename lifters">+ Lifter</button>`;
   $('lifts').innerHTML = S.lifts.map(l =>
@@ -491,7 +518,20 @@ function render() {
   $('barinfo').textContent = `Bar ${fmtU(barKg, 'lb')} lb · ${fmtU(barKg, 'kg')} kg` +
     (collarKg ? ` · with collars ${fmtU(baseKg, u)} ${u}` : '');
 
-  if (document.activeElement !== $('target')) $('target').value = getTarget();
+  // What if: plate builder instead of ± buttons, and no saved-weight line
+  const wi = isWI();
+  $('builder').hidden = !wi;
+  $('steps').hidden = wi;
+  $('step-mode').hidden = wi;
+  $('saved').hidden = wi;
+  $('target').placeholder = wi ? 'Type a weight' : '';
+  if (wi) renderPalette();
+
+  if (document.activeElement !== $('target')) {
+    $('target').value = !wi ? getTarget()
+      : p.mode === 'build' ? fmtU(baseKg + 2 * sumKg(p.build), u)  // an empty build shows the bar weight
+      : (parseFloat(getTarget()) > 0 ? getTarget() : '');
+  }
   const last = entry();
   $('saved').textContent = last
     ? `${p.name}'s last ${L().name} on the ${bar.name}: ${last.t} ${last.u} · ${new Date(last.d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
@@ -530,10 +570,67 @@ function render() {
   renderResults(baseKg);
 }
 
+const sumKg = list => list.reduce((a, b) => a + b, 0);
+// plates the rack offers right now, following the "This rack has" switch
+function rackPlates() {
+  const hasSmall = PLATES.some(pl => pl.kg <= smallKg() && S.counts[pl.kg] > 0);
+  const bigOnly = !hasSmall || plateSet() !== 'small';
+  return PLATES.filter(pl => S.counts[pl.kg] > 0 && (!bigOnly || pl.kg > smallKg()));
+}
+function renderPalette() {
+  const build = P().build;
+  const count = kg => build.filter(x => x === kg).length;
+  $('palette').innerHTML = rackPlates().map(pl => {
+    const used = count(pl.kg);
+    return `<div class="tile${used ? ' on' : ''}">
+      <button type="button" class="add" data-add="${pl.kg}" ${used >= S.counts[pl.kg] ? 'disabled' : ''} aria-label="Add a ${pl.kg} kg plate on each side">
+        <span class="dot" style="background:${pl.color};color:${pl.ink}">${used || ''}</span>+ ${pl.kg}</button>
+      <button type="button" class="sub" data-sub="${pl.kg}" ${used ? '' : 'disabled'} aria-label="Remove a ${pl.kg} kg plate from each side">− ${pl.kg}</button>
+    </div>`;
+  }).join('');
+  // what's on each side, drawn the same way as the result cards
+  $('wi-summary').innerHTML = sideHtml([...build].sort((a, b) => b - a).map(kg => PLATES.find(pl => pl.kg === kg)));
+}
+
+// What if results: a typed weight gets the usual options; tapped plates get their total + a lighter set
+function renderWhatIf(baseKg) {
+  const p = P(), u = p.unit;
+  const hasSmall = PLATES.some(pl => pl.kg <= smallKg() && S.counts[pl.kg] > 0);
+  $('set-row').hidden = !hasSmall;
+  const bigOnly = !hasSmall || plateSet() !== 'small';
+  const target = parseFloat(getTarget());
+  if (p.mode === 'target' && target > 0) {
+    const targetKg = toKg(target, u);
+    let html = targetKg < baseKg - 1e-9 ? `<p class="note warn">That's lighter than the empty bar (${fmtU(baseKg, u)} ${u}).</p>` : '';
+    return html + options(baseKg, targetKg, bigOnly);
+  }
+  const plates = [...p.build].sort((a, b) => b - a).map(kg => PLATES.find(pl => pl.kg === kg));
+  const loaded = { total: baseKg + 2 * sumKg(p.build), plates };
+  // the plates are already drawn under the tiles, so this card only shows the total
+  let html = card(loaded, plates.length ? 'Loaded' : 'Empty bar', 'match', null, null, null, false);
+  if (!plates.length) return html + '<p class="note">Tap plates above to load the bar, or type a weight.</p>';
+  const loads = buildLoads(bigOnly).map(l => ({ ...l, total: baseKg + 2 * l.side }));
+  const light = lighterLoad(loads, loaded.total, baseKg);
+  if (light) html += card(light.l, light.inBand ? '10–15% lighter' : 'Nearest lighter', 'light',
+    fromKg(light.l.total - loaded.total, u), (light.l.total / loaded.total - 1) * 100, null);
+  return html;
+}
+
+// Lighter set: aim for 12.5% under; anywhere in the 10–15% band counts, else the nearest lighter load
+function lighterLoad(loads, targetKg, baseKg, skip) {
+  if (targetKg <= baseKg) return null;
+  const lo = targetKg * 0.85, hi = targetKg * 0.90, mid = targetKg * 0.875;
+  const inBand = loads.filter(l => l.total >= lo - 1e-9 && l.total <= hi + 1e-9);
+  const pool = inBand.length ? inBand : loads.filter(l => l.total < targetKg - 1e-9 && l !== skip);
+  if (!pool.length) return null;
+  return { l: pool.reduce((a, b) => Math.abs(b.total - mid) < Math.abs(a.total - mid) ? b : a), inBand: inBand.length > 0 };
+}
+
 let shown = [];  // loads on screen, indexed by each card's "Use this load" button
 function renderResults(baseKg) {
   const u = P().unit, out = $('results');
   shown = [];
+  if (isWI()) { out.innerHTML = renderWhatIf(baseKg); return; }
   const lift = (entry() || {}).lift;
   const target = parseFloat(getTarget());
   if (!isFinite(target) || target <= 0) {
@@ -569,18 +666,11 @@ function options(baseKg, targetKg, bigOnly) {
   if (!exact && above && above !== match) cards.push(card(above, 'Over target', '', dd(above), null, bigOnly));
   if (!match && below) cards.push(card(below, 'Under target', '', dd(below), null, bigOnly));
 
-  // Lighter set: aim for 12.5% under, anywhere in the 10–15% band counts
-  if (targetKg > baseKg) {
-    const lo = targetKg * 0.85, hi = targetKg * 0.90, mid = targetKg * 0.875;
-    const inBand = loads.filter(l => l.total >= lo - 1e-9 && l.total <= hi + 1e-9);
-    // Nothing in the band: nearest lighter load, skipping the one already shown as "Under target"
-    const pool = inBand.length ? inBand
-      : loads.filter(l => l.total < targetKg - 1e-9 && !(l === below && !match));
-    const light = pool.length && pool.reduce((a, b) => Math.abs(b.total - mid) < Math.abs(a.total - mid) ? b : a);
-    if (light) {
-      cards.push(card(light, inBand.length ? '10–15% lighter' : 'Nearest lighter', 'light', dd(light),
-        (light.total / targetKg - 1) * 100, bigOnly));
-    }
+  // Lighter set; with nothing in the band, skip the load already shown as "Under target"
+  const light = lighterLoad(loads, targetKg, baseKg, match ? null : below);
+  if (light) {
+    cards.push(card(light.l, light.inBand ? '10–15% lighter' : 'Nearest lighter', 'light', dd(light.l),
+      (light.l.total / targetKg - 1) * 100, bigOnly));
   }
 
   let note = '';
@@ -598,34 +688,39 @@ function lastCard(lift, targetKg) {
   return card(l, `Last lift · ${when}`, 'last', diff, null, null);
 }
 
-function card(l, label, kind, diff, pct, bigOnly) {
+function card(l, label, kind, diff, pct, bigOnly, showSide = true) {
   const u = P().unit;
   const half = u === 'lb' ? 0.05 : 0.005;  // anything that rounds to 0 is on target
   let d = diff == null ? '' : Math.abs(diff) < half ? 'on target' : `${diff > 0 ? '+' : '−'}${fmt(Math.abs(diff), u === 'lb' ? 1 : 2)} ${u}`;
   if (pct != null) d = `−${fmt(Math.abs(pct), 0)}% · ${d}`;
   let use = '';
-  if (bigOnly != null) {
+  if (bigOnly != null && !isWI()) {
     const lift = (entry() || {}).lift;
     const picked = lift && Math.abs(lift.kg - l.total) < 1e-6 && lift.plates.join() === l.plates.map(p => p.kg).join();
     shown.push({ l, s: bigOnly ? 'big' : 'small' });
     use = `<button type="button" class="use" data-use="${shown.length - 1}" aria-pressed="${!!picked}">${picked ? 'Saved as last lift ✓' : 'Use this load'}</button>`;
   }
-  const groups = [];
-  for (const p of l.plates) {
-    const g = groups[groups.length - 1];
-    if (g && g.kg === p.kg) g.n++; else groups.push({ kg: p.kg, n: 1 });
-  }
-  const sideText = groups.length ? groups.map(g => `<strong>${g.kg}</strong>${g.n > 1 ? ` × ${g.n}` : ''}`).join(' · ') : 'Empty bar';
-  const plates = l.plates.map(p =>
-    `<div class="plate" style="background:${p.color};color:${p.ink};height:${p.h * .9}%;width:${p.t}px"><i>${p.t >= 9 ? p.kg : ''}</i></div>`).join('');
   return `
   <article class="card ${kind}">
     <div class="card-head"><span class="pill">${label}</span><span class="diff">${d}</span></div>
     <div class="total"><b>${fmtU(l.total, u)} ${u}</b><span>${fmtU(l.total, other(u))} ${other(u)}</span></div>
-    <div class="side">Each side (kg): ${sideText}</div>
-    <div class="sleeve" aria-hidden="true"><div class="stop"></div>${plates}${S.collars ? '<div class="collar"></div>' : ''}</div>
+    ${showSide ? sideHtml(l.plates) : ''}
     ${use}
   </article>`;
+}
+
+// "Each side (kg): 25 × 2 · 10" plus the drawn sleeve; plates are heaviest-in
+function sideHtml(plates) {
+  const groups = [];
+  for (const p of plates) {
+    const g = groups[groups.length - 1];
+    if (g && g.kg === p.kg) g.n++; else groups.push({ kg: p.kg, n: 1 });
+  }
+  const sideText = groups.length ? groups.map(g => `<strong>${g.kg}</strong>${g.n > 1 ? ` × ${g.n}` : ''}`).join(' · ') : 'Empty bar';
+  const drawn = plates.map(p =>
+    `<div class="plate" style="background:${p.color};color:${p.ink};height:${p.h * .9}%;width:${p.t}px"><i>${p.t >= 9 ? p.kg : ''}</i></div>`).join('');
+  return `<div class="side">Each side (kg): ${sideText}</div>
+    <div class="sleeve" aria-hidden="true"><div class="stop"></div>${drawn}${S.collars ? '<div class="collar"></div>' : ''}</div>`;
 }
 
 const update = () => { save(); render(); };
@@ -654,18 +749,34 @@ $('results').onclick = e => {
 $('lifts').onclick = e => {
   if (e.target.closest('[data-addlift]')) { $('setup').open = true; $('nlf-name').focus(); return; }
   const b = e.target.closest('[data-lift]'); if (!b) return;
-  P().liftId = b.dataset.lift; $('target').blur(); targetFromLift(); update();
+  P().liftId = b.dataset.lift; $('target').blur(); targetFromLift();
+  if (isWI()) wiReset();
+  update();
 };
 $('lifters').onclick = e => {
   if (e.target.closest('[data-addlifter]')) { $('setup').open = true; $('nl-name').focus(); return; }
   const b = e.target.closest('[data-lifter]'); if (!b) return;
   S.profileId = b.dataset.lifter; $('target').blur(); targetFromLift(); update();
 };
-$('bar').onchange = e => { cfg().barId = e.target.value; targetFromLift(); update(); };
+$('bar').onchange = e => { cfg().barId = e.target.value; targetFromLift(); if (isWI()) wiReset(); update(); };
 $('custom-w').oninput = e => { S.custom.w = parseFloat(e.target.value) || 0; update(); };
 $('cu-lb').onclick = () => { S.custom.u = 'lb'; update(); };
 $('cu-kg').onclick = () => { S.custom.u = 'kg'; update(); };
-$('target').oninput = e => { setTarget(e.target.value); update(); };
+$('target').oninput = e => {
+  if (isWI()) { P().mode = 'target'; P().build = []; }  // typing a weight replaces tapped plates
+  setTarget(e.target.value); update();
+};
+$('palette').onclick = e => {
+  const b = e.target.closest('[data-add], [data-sub]'); if (!b || b.disabled) return;
+  const p = P();
+  if (p.mode !== 'build') { p.mode = 'build'; p.build = []; setTarget(''); }  // tapping plates starts from the empty bar
+  if (b.dataset.add) p.build.push(parseFloat(b.dataset.add));
+  else { const i = p.build.lastIndexOf(parseFloat(b.dataset.sub)); if (i >= 0) p.build.splice(i, 1); }
+  $('target').blur(); update();
+};
+// back to the empty bar: on Clear, and whenever What if switches to a new lift or bar
+function wiReset() { const p = P(); p.build = []; p.mode = 'build'; setTarget(''); $('target').blur(); }
+$('wi-clear').onclick = () => { wiReset(); update(); };
 $('target').onfocus = e => e.target.select();
 $('steps').onclick = e => {
   const b = e.target.closest('[data-step], [data-pstep]'); if (!b) return;
