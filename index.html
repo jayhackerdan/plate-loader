@@ -276,7 +276,7 @@ details.panel[open] summary::after { content: "Hide"; }
 
 <script>
 // Bump this with every upload so you can tell which version a phone is running
-const APP_VERSION = '1.11 · Nov 11, 2026';
+const APP_VERSION = '1.12 · Nov 11, 2026';
 
 const KG_PER_LB = 0.45359237;
 // Plates this size and under count as "small" (some racks don't have them); set in Gym setup
@@ -525,7 +525,7 @@ function render() {
   $('step-mode').hidden = wi;
   $('saved').hidden = wi;
   $('target').placeholder = wi ? 'Type a weight' : '';
-  if (wi) renderPalette();
+  if (wi) renderPalette(baseKg);
 
   if (document.activeElement !== $('target')) {
     $('target').value = !wi ? getTarget()
@@ -577,8 +577,21 @@ function rackPlates() {
   const bigOnly = !hasSmall || plateSet() !== 'small';
   return PLATES.filter(pl => S.counts[pl.kg] > 0 && (!bigOnly || pl.kg > smallKg()));
 }
-function renderPalette() {
-  const build = P().build;
+// plates (kg, per side) for the load closest to a typed weight, using the rack's plate set
+function closestBuild(baseKg) {
+  const p = P(), target = parseFloat(getTarget());
+  if (!(target > 0)) return [];
+  const hasSmall = PLATES.some(pl => pl.kg <= smallKg() && S.counts[pl.kg] > 0);
+  const loads = buildLoads(!hasSmall || plateSet() !== 'small');
+  const want = (toKg(target, p.unit) - baseKg) / 2;
+  let best = loads[0];
+  for (const l of loads) if (Math.abs(l.side - want) < Math.abs(best.side - want) - 1e-9) best = l;
+  return best.plates.map(pl => pl.kg);
+}
+let wiShown = [];  // plates on the tiles right now; tapping a plate after typing a weight starts from these
+function renderPalette(baseKg) {
+  const p = P();
+  const build = wiShown = p.mode === 'build' ? p.build : closestBuild(baseKg);
   const count = kg => build.filter(x => x === kg).length;
   $('palette').innerHTML = rackPlates().map(pl => {
     const used = count(pl.kg);
@@ -769,7 +782,7 @@ $('target').oninput = e => {
 $('palette').onclick = e => {
   const b = e.target.closest('[data-add], [data-sub]'); if (!b || b.disabled) return;
   const p = P();
-  if (p.mode !== 'build') { p.mode = 'build'; p.build = []; setTarget(''); }  // tapping plates starts from the empty bar
+  if (p.mode !== 'build') { p.mode = 'build'; p.build = [...wiShown]; setTarget(''); }  // start from the plates closest to the typed weight
   if (b.dataset.add) p.build.push(parseFloat(b.dataset.add));
   else { const i = p.build.lastIndexOf(parseFloat(b.dataset.sub)); if (i >= 0) p.build.splice(i, 1); }
   $('target').blur(); update();
